@@ -1,0 +1,8 @@
+C:\Users\svc_etlav\Documents\_box_phase_2\extractAttachments.exe
+C:\Users\svc_etlav\Documents\_box_phase_2\extractAttachments.dll
+C:\Users\svc_etlav\Documents\_box_phase_2\extractAttachments.deps.json
+C:\Users\svc_etlav\Documents\_box_phase_2\extractAttachments.runtimeconfig.json
+C:\Users\svc_etlav\Documents\_box_phase_2\extractAttachments.pdb
+C:\Users\svc_etlav\Documents\_box_phase_2\Aspose.Email.dll
+C:\Users\svc_etlav\Documents\_box_phase_2\System.Security.Cryptography.Pkcs.dll
+C:\Users\svc_etlav\Documents\_box_phase_2\runtimes\win\lib\netcoreapp3.0\System.Security.Cryptography.Pkcs.dll
