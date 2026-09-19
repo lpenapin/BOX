@@ -54,7 +54,7 @@ def extract_eml_content(eml_path):
     subject = msg.get('subject', 'No Subject')
     from_addr = msg.get('from', 'Unknown')
     to_addr = msg.get('to', 'Unknown')
-    cc_addr = msg.get('cc', 'Unknown' ) 
+    cc_addr = msg.get('cc', 'Unknown')  # New
     date = msg.get('date', 'Unknown')
     
     # Extract body
@@ -225,6 +225,15 @@ def create_html_template(email_data):
         attachments_html = ', '.join([html.escape(str(name or 'Unknown')) for name in attachment_names])
     else:
         attachments_html = 'None'
+
+    if cc_addr != 'Unknown':
+        cc_block = f"""    
+        <div class="email-header-item">
+            <span class="email-header-label">Cc:</span>
+            <span>{cc_addr}</span>
+        </div>"""
+    else:
+        cc_block = ""  # If Unknown it injects nothing
     
     html_template = f"""
     <!DOCTYPE html>
@@ -276,10 +285,7 @@ def create_html_template(email_data):
                 <span class="email-header-label">To:</span>
                 <span>{to_addr}</span>
             </div>
-            <div class="email-header-item">
-                <span class="email-header-label">Cc:</span>
-                <span>{cc_addr}</span>
-            </div>
+            {cc_block}
             <div class="email-header-item">
                 <span class="email-header-label">Date:</span>
                 <span>{date}</span>
@@ -371,8 +377,8 @@ def convert_email_to_pdf(email_path, pdf_path, wkhtmltopdf_path=r"C:\Program Fil
 # Example usage
 if __name__ == "__main__":
     # Specify your paths here
-    email_file_path = r"C:\individual_test\file.msg"  # or .eml
-    output_pdf_path = r"C:\individual_test\file.pdf"
+    email_file_path = r"C:\file_location\email_test.msg"  # or .eml
+    output_pdf_path = r"C:\file_location\email_test.pdf"
     
     # If wkhtmltopdf is not in PATH, specify its location:
     # wkhtmltopdf_exe = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"

@@ -1,230 +1,153 @@
-# Box File Downloader and Converter
+# Box Document Intake & Conversion Pipeline
 
-Python automation for downloading files from Box, organizing them by claim number and business area, converting supported content to standardized formats, and recording processing metadata.
+A Python-based workflow for automating Box file intake, claim-based routing, document conversion, and metadata tracking for operational document processing.
 
-> **Status:** Presentation-only documentation for an internal operational utility. Production source code, credentials, tokens, license files, and infrastructure configuration are intentionally not part of the public project.
-
-## Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Technical design](#technical-design)
-- [C# attachment extractor](#c-attachment-extractor)
-- [Requirements](#requirements)
-- [Configuration](#configuration)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Output and observability](#output-and-observability)
-- [Implementation plan](#implementation-plan)
-- [Future requirements](#future-requirements)
-- [Risks and mitigations](#risks-and-mitigations)
-- [Security checklist before publishing](#security-checklist-before-publishing)
-- [Repository layout](#repository-layout)
+This project connects Box, file normalization, downstream conversion tools, and reporting into a repeatable batch pipeline designed for claim-driven document handling.
 
 ## Overview
 
-The application runs as a two-phase batch pipeline:
+The solution is built around a two-stage automation flow:
 
-1. **Download phase:** authenticates with Box, refreshes the OAuth token, reads configured Box folders, extracts claim numbers from file names and descriptions, downloads files to a network location, and records download metadata.
-2. **Conversion phase:** scans the input directory, converts or copies files into the target format/location, preserves a backup copy, and records the result in per-claim Excel metadata and SQL Server.
+1. Download files from configured Box folders and organize them by claim number and business area.
+2. Process incoming files into standardized output formats for downstream use, storage, and audit.
 
-The main entry point is `main.py`. It is designed for scheduled, long-running execution and repeats the download/conversion cycle at approximately 50-minute intervals until the configured end-of-day cutoff.
+It supports a wide range of file types including images, emails, Office documents, archives, video, audio, and PDFs, while also capturing audit details in Excel and SQL Server.
 
-## Features
+## Key capabilities
 
-- Box OAuth authentication using access and refresh tokens.
-- Token refresh and persistence in a local JSON file.
-- Download organization by Box business-area folder and claim number.
-- Claim number detection from file names and descriptions.
-- Duplicate-safe and Windows-compatible file naming.
-- Processing of:
-  - Images, including HEIC conversion and EXIF orientation handling.
-  - Email files (`.eml` and `.msg`) with embedded images and attachments.
-  - Office documents converted to PDF.
-  - Archives extracted with protection against `autorun.inf`.
-  - Audio converted to MP3.
-  - Video converted to H.264/AAC MP4.
-  - Excel/CSV files copied to the output.
-- PDF splitting by configured size/page limits.
-- Per-claim Excel metadata logs.
-- SQL Server download and conversion audit logs.
-- SMTP summary and alert emails.
+- Box API authentication and token refresh handling
+- Claim number extraction from file names and descriptions
+- Structured file organization by business area and claim number
+- Retry logic for transient download failures
+- Duplicate-safe and Windows-compatible file naming
+- Metadata capture for downloads and conversion results
+- Email, image, archive, document, audio, and video handling
+- PDF splitting and normalization for large or complex files
+- Alerting and success notifications via email
 
-## Technical design
-
-### Logical architecture
+## Architecture
 
 ```text
 Box API
-  |
-  v
-main.py
-  |
-  +--> authentication_utils.py
-  |      OAuth token loading, refresh, and persistence
-  |
-  +--> downloader.py
-  |      Folder enumeration, claim extraction, download, metadata logging
-  |
-  +--> db_helpers.py
-  |      SQL Server connectivity and audit inserts
-  |
-  +--> log_file.py
-  |      Per-claim CSV exports from SQL Server
-  |
-  +--> main_phase2.py
-         |
-         +--> processing.py
-         |      File classification and batch orchestration
-         |
-         +--> converters.py / email_utils.py
-         |      File conversion and email extraction
-         |          |
-         |          +--> extractAttachments (C#/.NET)
-         |                 MSG attachment extraction
-         |
-         +--> metadata.py
-                Excel and SQL Server conversion audit records
+  │
+  ▼
+src/main.py
+  ├── authenticates to Box
+  ├── downloads files for configured folders
+  ├── identifies claim numbers
+  └── triggers conversion workflow
+
+src/main_phase2.py
+  └── executes batch processing pipeline
+
+src/processing.py
+  ├── classifies files by type
+  ├── converts to target output format
+  ├── preserves backup copies
+  └── records metadata
 ```
 
-### Data flow
+## Workflow
 
-1. Authenticate to Box using the configured client credentials and stored refresh token.
-2. Enumerate the configured Box source folders.
-3. Retrieve file metadata and resolve the actor/uploader when available.
-4. Extract one or more claim numbers from the file name and description.
-5. Store files under a business-area/claim-number directory.
-6. Write download metadata to Excel and `BOX_FileDownloadLog`.
-7. Process files from the phase-two input directory.
-8. Write converted files to the output directory and preserve source files in the backup directory.
-9. Write conversion results to `Xerox_Final_Metadata.xlsx` and `FinalMetadataLog`.
-10. Send summary or alert email notifications.
+### Phase 1: Download and classification
 
-### Reliability and idempotency behavior
+The download stage orchestrates Box access and organizes files before processing:
 
-- File names are sanitized, truncated for Windows path limits, and made unique with version suffixes.
-- Download operations retry up to three times.
-- Metadata tables and workbook headers are created or reconciled when needed.
-- Individual conversion failures are logged as failed metadata records so the batch can continue.
-- Network paths and external services remain required for successful end-to-end execution.
+- authenticates to Box using configured credentials
+- reads files from configured source folders
+- resolves claim numbers from metadata and file names
+- stores files in a claim-based folder structure
+- logs successful, failed, and skipped files
+- marks completed files as processed in Box when appropriate
 
-## C# attachment extractor
+### Phase 2: Conversion and normalization
 
-The [`extractAttachments/`]() project is a small C#/.NET helper used by the Python email-processing flow for Outlook `.msg` files.
+The conversion stage handles the file processing pipeline:
 
-### Responsibilities
+- scans input folders for new files
+- converts images, emails, documents, audio, and video
+- handles compression and PDF splitting when required
+- writes output to the normalized target structure
+- preserves backups and keeps audit records
 
-- Load an Outlook `.msg` file through Aspose.Email.
-- Extract embedded and regular attachments.
-- Preserve attachment names when available.
-- Add a `.msg` extension to embedded Outlook messages.
-- Sanitize Windows-invalid filename characters.
-- Detect a file extension from its content when the attachment has no usable extension.
-- Avoid overwriting an existing attachment by generating a unique filename.
-- Save extracted files into a temporary output directory consumed by Python.
+## Supported file types
 
-### Command-line interface
+- Images: JPG, PNG, TIFF, HEIC, BMP, GIF
+- Emails: EML, MSG
+- Documents: DOC, DOCX, PPT, PPTX
+- Spreadsheets: XLS, XLSX, CSV
+- Archives: ZIP, RAR, 7Z, TAR, GZ, TGZ, BZ2, XZ
+- Audio: MP3, WAV, OGG, M4A, FLAC
+- Video: MP4, MOV and compatible video sources
+- PDF: split, normalized, copied or processed according to pipeline rules
 
-The compiled helper expects three arguments:
+## Tech stack
+
+- Python
+- Box SDK
+- OpenPyXL
+- Pandas
+- Pillow and Pillow-Heif
+- PyPDF2 / pypdf
+- pydub
+- Aspose Email
+- SQL Server / pyodbc
+- FFmpeg, LibreOffice, wkhtmltopdf
+- .NET helper for MSG attachment extraction
+
+## Project structure
 
 ```text
-extractAttachments.exe <msg-file> <output-directory> <aspose-license-path>
+BOX/
+├── README.md
+├── box_tokens.json
+├── licenses/
+│   └── Aspose.Total.lic
+├── extractAttachments/
+│   ├── Program.cs
+│   ├── extractAttachments.csproj
+│   └── ...
+├── src/
+│   ├── __init__.py
+│   ├── authentication_utils.py
+│   ├── converters.py
+│   ├── db_helpers.py
+│   ├── downloader.py
+│   ├── email_utils.py
+│   ├── email_to_pdf_converter.py
+│   ├── log_file.py
+│   ├── main.py
+│   ├── main_phase2.py
+│   ├── metadata.py
+│   ├── notifications.py
+│   ├── pdf_utils.py
+│   ├── processing.py
+│   ├── utils.py
+│   ├── utils_phase2.py
+│   └── ...
+├── msgatt/
+├── Documentation/
+└── ...
 ```
 
-The Python integration invokes this executable from `email_utils.py`, then copies the extracted files from the temporary directory into the claim's output directory for further processing.
+## Setup and configuration
 
-### Build requirements
+The project relies on environment variables and local configuration values for secure runtime settings.
 
-- .NET 8 SDK.
-- The `Aspose.Email` NuGet package, currently referenced at version `22.8.0`.
-- A valid Aspose.Email license.
+Typical settings include:
 
-Build from the C# project directory:
+- Box client ID and secret
+- Box folder IDs and token file
+- local or network base paths for raw, input, output, backup, and claim storage
+- SQL Server connection settings
+- SMTP configuration for notifications
+- external tool paths for FFmpeg, LibreOffice, wkhtmltopdf, and Aspose licensing
 
-```powershell
-dotnet restore .\extractAttachments.csproj
-dotnet build .\extractAttachments.csproj --configuration Release
-```
-
-The generated `bin/` and `obj/` directories are build artifacts and should not be included in a presentation repository. The source files, project file, and solution files are sufficient to explain or reproduce the component, subject to the applicable Aspose.Email license.
-
-## Requirements
-
-### Runtime
-
-- Windows 10/11 or Windows Server.
-- Python 3.10 or later.
-- .NET 8 SDK/runtime for building or running `extractAttachments`.
-- Access to the configured Box folders and Box API.
-- Microsoft SQL Server access.
-- SQL Server ODBC Driver 17 or later.
-- SMTP relay access.
-- Read/write access to the configured local or UNC paths.
-
-### Python packages
-
-The project currently imports the following third-party packages. Because no `requirements.txt` is present, create one for the deployment environment and pin versions after validation:
-
-```text
-aspose-email
-boxsdk
-ffmpeg-python
-fpdf2
-matplotlib
-openpyxl
-pandas
-pdfkit
-Pillow
-pillow-heif
-PyPDF2
-pypdf
-pyodbc
-python-dateutil
-python-dotenv
-extract-msg
-reportlab
-pydub
-```
-
-Install the package dependencies with:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install aspose-email boxsdk ffmpeg-python fpdf2 matplotlib openpyxl pandas pdfkit Pillow pillow-heif PyPDF2 pypdf pyodbc python-dateutil python-dotenv extract-msg reportlab pydub
-```
-
-### Native and licensed dependencies
-
-The following are not installed by the Python command above:
-
-- **FFmpeg**, available on `PATH`, for video and audio processing.
-- **LibreOffice**, currently expected at `C:\Program Files\LibreOffice\program\soffice.exe`.
-- **wkhtmltopdf**, used by the email-to-PDF flow and currently configured at `C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe`.
-- **Aspose.Email for Python via .NET** license files.
-- **Aspose.Email for .NET** for the C# attachment extractor.
-- Microsoft SQL Server ODBC driver.
-
-## Configuration
-
-The current operational paths and non-secret settings are centralized in `__init__.py`. Database connection values are loaded from environment variables by `db_helpers.py`; no database credential defaults should be stored in source code.
-
-At minimum, configure:
-
-| Area | Values |
-| --- | --- |
-| Box | Client ID, client secret, token file, source folder IDs, completed-folder IDs |
-| Storage | Download root, conversion input/output roots, backup root, claims root |
-| Database | `DB_DRIVER`, `DB_SERVER`, `DB_DATABASE`, `DB_TRUSTED`, `DB_UID`, `DB_PWD`, encryption flags |
-| Email | Sender, recipients, SMTP server, SMTP port |
-| Conversion | FFmpeg, LibreOffice, wkhtmltopdf, Aspose licenses, attachment extractor path |
-
-Example `.env` values for SQL Server:
+Example environment configuration:
 
 ```dotenv
 BOX_CLIENT_ID=your-box-client-id
-BOX_CLIENT_SECRET=use-an-approved-secret-store
+BOX_CLIENT_SECRET=your-box-client-secret
 BOX_TOKEN_FILE=C:\Projects\_box_phase_1\box_tokens.json
 DB_TRUSTED=true
 DB_DRIVER=ODBC Driver 17 for SQL Server
@@ -234,5 +157,33 @@ DB_ENCRYPT=true
 DB_TRUST_SERVER_CERT=false
 ```
 
-For SQL authentication, use a secret-management solution or protected deployment variable for `DB_UID` and `DB_PWD`. Do not commit credentials, Box tokens, license files, or private network details.
+## Getting started
+
+1. Create a virtual environment.
+2. Install the required Python dependencies.
+3. Configure Box, SQL Server, and SMTP settings.
+4. Validate the Box token and folder access.
+5. Run the main download workflow.
+6. Run the conversion workflow once files are present in the intake path.
+
+Example install command:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install aspose-email boxsdk ffmpeg-python fpdf2 matplotlib openpyxl pandas pdfkit Pillow pillow-heif PyPDF2 pypdf pyodbc python-dateutil python-dotenv extract-msg reportlab pydub
+```
+
+## Security note
+
+This project handles sensitive operational data including Box content, claim information, and enterprise metadata. Do not commit secrets, tokens, license files, or environment-specific configuration to source control.
+
+## License and usage
+
+This repository is intended for internal operational use and is structured around the current environment configuration required for production file processing. The code and workflows may be adapted for other document-processing use cases with appropriate dependency and security review.
+
+## Status
+
+The project is designed as a scheduled automation pipeline for real-world document intake and conversion work, with operational logging, retries, and metadata tracking built into the processing flow.
 
